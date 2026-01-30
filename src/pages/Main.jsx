@@ -214,6 +214,7 @@ const Main = () => {
                     <th>남녀 공학</th>
                     <th>학업성취도 평균</th>
                     <th>특목고/자사고 진학률</th>
+                    <th>위치</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -242,6 +243,20 @@ const Main = () => {
                         </td>
                         <td className="admission-cell">
                           {hasRanking ? `${school.admission}%` : '-'}
+                        </td>
+                        <td className="location-cell">
+                          <a
+                            href={`https://map.naver.com/p/search/${encodeURIComponent(school.name)}?c=15.00,0,0,0,dh`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="map-link"
+                            aria-label={`${school.name} 네이버 지도에서 보기`}
+                          >
+                            <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                              <path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"></path>
+                              <circle cx="12" cy="10" r="3"></circle>
+                            </svg>
+                          </a>
                         </td>
                       </tr>
                     );

@@ -76,10 +76,38 @@ function parseAddressFromBoth(jibunAddress, roadAddress) {
 }
 
 /**
+ * 기존 schoolDataBase.json에서 학교 데이터를 찾아 반환
+ * @param {Object} existingData - 기존 데이터
+ * @param {string} year - 연도
+ * @param {string} regionKey - 지역 키
+ * @param {string} schoolName - 학교 이름
+ * @returns {Object|null} - 기존 학교 데이터 또는 null
+ */
+function findExistingSchool(existingData, year, regionKey, schoolName) {
+  if (!existingData[year] || !existingData[year][regionKey]) {
+    return null;
+  }
+  return existingData[year][regionKey].find(s => s.name === schoolName) || null;
+}
+
+/**
  * XLSX 파일을 읽어서 schoolData 형식으로 변환
+ * 기존 순위 데이터(achievement, admission, rank)를 보존합니다
  */
 function transformSchoolData() {
   console.log('데이터 변환 시작...\n');
+
+  // 기존 데이터 읽기 (순위 정보 보존을 위해)
+  const existingDataPath = path.join(__dirname, '../src/data/schoolDataBase.json');
+  let existingData = null;
+  if (fs.existsSync(existingDataPath)) {
+    try {
+      existingData = JSON.parse(fs.readFileSync(existingDataPath, 'utf8'));
+      console.log('기존 데이터를 로드했습니다. 순위 정보를 보존합니다.\n');
+    } catch (e) {
+      console.log('기존 데이터 읽기 실패, 새로 생성합니다.\n');
+    }
+  }
 
   // XLSX 파일 읽기
   const workbook = XLSX.readFile('./middle_school_list.xlsx');
@@ -100,15 +128,18 @@ function transformSchoolData() {
   console.log(`총 ${data.length - 1}개의 학교 데이터를 처리합니다.\n`);
 
   // 연도별 데이터 구조 생성 (2025, 2024, 2023)
+  // 기존 데이터가 있으면 복사해서 시작
   const result = {
-    2025: {},
-    2024: {},
-    2023: {},
+    2025: existingData?.[2025] ? JSON.parse(JSON.stringify(existingData[2025])) : {},
+    2024: existingData?.[2024] ? JSON.parse(JSON.stringify(existingData[2024])) : {},
+    2023: existingData?.[2023] ? JSON.parse(JSON.stringify(existingData[2023])) : {},
   };
 
   let middleSchoolCount = 0;
   let parsedCount = 0;
   let skippedCount = 0;
+  let preservedCount = 0;
+  let newSchoolCount = 0;
 
   // 데이터 행 처리 (헤더 제외)
   for (let i = 1; i < data.length; i++) {
@@ -142,21 +173,47 @@ function transformSchoolData() {
     // 지역 키 생성 (예: "서울특별시 강남구")
     const regionKey = `${sido} ${sigungu}`;
 
-    // 학교 데이터 생성 (순위 정보 없음)
-    const schoolData = {
-      name: schoolName,
-      type: establishmentType || '공립',
-      gender: '남녀공학',
-      // 순위 관련 데이터는 없음
-      hasRanking: false,
-    };
-
     // 모든 연도에 동일하게 추가
     for (const year of [2025, 2024, 2023]) {
       if (!result[year][regionKey]) {
         result[year][regionKey] = [];
       }
-      result[year][regionKey].push(schoolData);
+
+      // 기존 데이터에 이 학교가 있는지 확인
+      const existingSchool = findExistingSchool(existingData, year, regionKey, schoolName);
+
+      if (existingSchool) {
+        // 기존 데이터가 있으면 순위 정보 보존
+        const schoolData = {
+          name: schoolName,
+          type: establishmentType || '공립',
+          gender: '남녀공학',
+          // 기존 순위 정보 보존
+          ...(existingSchool.rank !== undefined && { rank: existingSchool.rank }),
+          ...(existingSchool.achievement !== undefined && { achievement: existingSchool.achievement }),
+          ...(existingSchool.admission !== undefined && { admission: existingSchool.admission }),
+          hasRanking: existingSchool.hasRanking || false,
+        };
+
+        // 기존 배열에서 해당 학교 찾아서 업데이트
+        const schoolIndex = result[year][regionKey].findIndex(s => s.name === schoolName);
+        if (schoolIndex !== -1) {
+          result[year][regionKey][schoolIndex] = schoolData;
+        } else {
+          result[year][regionKey].push(schoolData);
+        }
+        if (year === 2025) preservedCount++;
+      } else {
+        // 새로운 학교
+        const schoolData = {
+          name: schoolName,
+          type: establishmentType || '공립',
+          gender: '남녀공학',
+          hasRanking: false,
+        };
+        result[year][regionKey].push(schoolData);
+        if (year === 2025) newSchoolCount++;
+      }
     }
   }
 
@@ -164,6 +221,8 @@ function transformSchoolData() {
   console.log(`중학교 수: ${middleSchoolCount}`);
   console.log(`주소 파싱 성공: ${parsedCount}`);
   console.log(`건너뛴 데이터: ${skippedCount}`);
+  console.log(`기존 순위 데이터 보존: ${preservedCount}개교`);
+  console.log(`신규 학교 추가: ${newSchoolCount}개교`);
   console.log(`총 지역 수: ${Object.keys(result[2025]).length}\n`);
 
   // 결과를 파일로 저장
