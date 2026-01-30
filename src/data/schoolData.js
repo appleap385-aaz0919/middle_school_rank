@@ -1,4 +1,7 @@
-export const schoolData = {
+import schoolDataBase from './schoolDataBase.json';
+
+// 기존 순위 데이터 보존 (11개 지역의 순위 정보)
+const existingRankingData = {
   2025: {
     '서울특별시 강남구': [
       { rank: 1, name: '청담중학교', type: '사립', gender: '남녀공학', achievement: 92.5, admission: 68.3 },
@@ -199,6 +202,32 @@ export const schoolData = {
   }
 };
 
+// 통합된 학교 데이터 생성
+// 기존 순위 데이터가 있는 지역은 순위 데이터 사용
+// 없는 지역은 schoolDataBase의 기본 학교 정보 사용
+const schoolData = {};
+
+['2025', '2024', '2023'].forEach(year => {
+  schoolData[year] = {};
+
+  // 기존 순위 데이터가 있는 지역은 순위 데이터 사용
+  if (existingRankingData[year]) {
+    Object.entries(existingRankingData[year]).forEach(([region, schools]) => {
+      schoolData[year][region] = schools.map(s => ({ ...s, hasRanking: true }));
+    });
+  }
+
+  // schoolDataBase의 모든 지역 데이터 추가
+  if (schoolDataBase[year]) {
+    Object.entries(schoolDataBase[year]).forEach(([region, schools]) => {
+      // 기존 순위 데이터가 없는 지역만 추가
+      if (!schoolData[year][region]) {
+        schoolData[year][region] = schools;
+      }
+    });
+  }
+});
+
 export const getSchoolsByRegion = (region, year) => {
   return schoolData[year]?.[region] || [];
 };
@@ -212,3 +241,45 @@ export const getAllRegions = () => {
   });
   return Array.from(allRegions);
 };
+
+/**
+ * 학교 이름으로 검색
+ * @param {string} query - 검색어 (최소 2글자)
+ * @param {string} year - 연도 (기본값: '2025')
+ * @returns {Array} 검색 결과 학교 배열 [{ school, region }, ...]
+ */
+export const searchSchoolsByName = (query, year = '2025') => {
+  if (!query || query.length < 2) {
+    return [];
+  }
+
+  const results = [];
+  const searchLower = query.toLowerCase();
+
+  // 해당 연도의 모든 지역 순회
+  if (schoolData[year]) {
+    Object.entries(schoolData[year]).forEach(([region, schools]) => {
+      schools.forEach(school => {
+        const schoolNameLower = school.name?.toLowerCase() || '';
+        if (schoolNameLower.includes(searchLower)) {
+          results.push({
+            ...school,
+            region, // 검색 결과에 지역 정보 포함
+          });
+        }
+      });
+    });
+  }
+
+  // 순위 기준 정렬 (순위 있는 것 우선)
+  results.sort((a, b) => {
+    if (a.hasRanking && !b.hasRanking) return -1;
+    if (!a.hasRanking && b.hasRanking) return 1;
+    if (a.hasRanking && b.hasRanking) return a.rank - b.rank;
+    return 0;
+  });
+
+  return results;
+};
+
+export default schoolData;

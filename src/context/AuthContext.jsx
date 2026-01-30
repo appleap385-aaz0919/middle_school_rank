@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
-import { auth } from '../firebase';
+import { auth, db } from '../firebase';
 import { onAuthStateChanged, signInWithEmailAndPassword, createUserWithEmailAndPassword, signOut } from 'firebase/auth';
+import { doc, setDoc, getDoc } from 'firebase/firestore';
 
 const AuthContext = createContext();
 
@@ -10,11 +11,62 @@ export const useAuth = () => {
 
 export const AuthProvider = ({ children }) => {
   const [currentUser, setCurrentUser] = useState(null);
+  const [userInfo, setUserInfo] = useState(null);
   const [loading, setLoading] = useState(true);
 
+  // 사용자 정보 가져오기 함수
+  const fetchUserInfo = async (user) => {
+    if (!user) {
+      setUserInfo(null);
+      return null;
+    }
+
+    try {
+      // Firestore에서 사용자 정보 가져오기
+      const userDoc = await getDoc(doc(db, 'users', user.uid));
+
+      if (userDoc.exists()) {
+        const info = userDoc.data();
+        setUserInfo(info);
+        return info;
+      }
+
+      // Firestore에 없으면 localStorage에서 가져오기 (기존 데이터 호환성)
+      const localInfo = localStorage.getItem(`user_${user.uid}`);
+      if (localInfo) {
+        const info = JSON.parse(localInfo);
+        setUserInfo(info);
+        // localStorage에 있는데 Firestore에 없으면 Firestore로 복사
+        await setDoc(doc(db, 'users', user.uid), info);
+        return info;
+      }
+
+      setUserInfo(null);
+      return null;
+    } catch (error) {
+      console.error('사용자 정보 가져오기 오류:', error);
+      // 오류 발생 시 localStorage 시도
+      const localInfo = localStorage.getItem(`user_${user.uid}`);
+      if (localInfo) {
+        const info = JSON.parse(localInfo);
+        setUserInfo(info);
+        return info;
+      }
+      setUserInfo(null);
+      return null;
+    }
+  };
+
   useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, (user) => {
+    const unsubscribe = onAuthStateChanged(auth, async (user) => {
       setCurrentUser(user);
+
+      if (user) {
+        await fetchUserInfo(user);
+      } else {
+        setUserInfo(null);
+      }
+
       setLoading(false);
     });
 
@@ -39,15 +91,23 @@ export const AuthProvider = ({ children }) => {
   const register = async (email, password, schoolLevel, grade) => {
     try {
       const userCredential = await createUserWithEmailAndPassword(auth, email, password);
-      // 사용자 정보를 localStorage에 저장
-      const userInfo = {
+
+      // 사용자 정보 생성
+      const info = {
         uid: userCredential.user.uid,
         email: email,
         schoolLevel: schoolLevel,
         grade: grade,
         createdAt: new Date().toISOString()
       };
-      localStorage.setItem(`user_${userCredential.user.uid}`, JSON.stringify(userInfo));
+
+      // Firestore에 사용자 정보 저장
+      await setDoc(doc(db, 'users', userCredential.user.uid), info);
+
+      // localStorage에도 저장 (기존 호환성 유지)
+      localStorage.setItem(`user_${userCredential.user.uid}`, JSON.stringify(info));
+
+      setUserInfo(info);
       return { success: true };
     } catch (error) {
       let errorMessage = '회원가입에 실패했습니다.';
@@ -65,6 +125,7 @@ export const AuthProvider = ({ children }) => {
   const logout = async () => {
     try {
       await signOut(auth);
+      setUserInfo(null);
       return { success: true };
     } catch (error) {
       return { success: false, error: error.message };
@@ -72,13 +133,12 @@ export const AuthProvider = ({ children }) => {
   };
 
   const getUserInfo = () => {
-    if (!currentUser) return null;
-    const userInfo = localStorage.getItem(`user_${currentUser.uid}`);
-    return userInfo ? JSON.parse(userInfo) : null;
+    return userInfo;
   };
 
   const value = {
     currentUser,
+    userInfo,
     login,
     register,
     logout,

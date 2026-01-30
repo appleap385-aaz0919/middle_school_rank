@@ -2,11 +2,11 @@ import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { getProvinces, getDistricts, getAllDistricts } from '../data/regionData';
-import { getSchoolsByRegion } from '../data/schoolData';
+import { getSchoolsByRegion, searchSchoolsByName } from '../data/schoolData';
 import './Main.css';
 
 const Main = () => {
-  const { currentUser, logout, getUserInfo } = useAuth();
+  const { logout, getUserInfo } = useAuth();
   const navigate = useNavigate();
 
   const [searchMode, setSearchMode] = useState('step'); // 'step' or 'search'
@@ -14,11 +14,10 @@ const Main = () => {
   const [selectedProvince, setSelectedProvince] = useState('');
   const [selectedDistrict, setSelectedDistrict] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
-  const [searchResults, setSearchResults] = useState([]);
   const [showResults, setShowResults] = useState(false);
   const [schools, setSchools] = useState([]);
 
-  const years = ['2025', '2024', '2023'];
+  const years = ['2025'];
 
   const handleLogout = async () => {
     const result = await logout();
@@ -38,38 +37,36 @@ const Main = () => {
       setSchools(schoolList);
       setShowResults(true);
     } else {
+      // 학교 이름 검색
       if (searchQuery.length < 2) {
         alert('최소 2글자 이상 입력해주세요.');
         return;
       }
-      const allDistricts = getAllDistricts();
-      const filteredDistricts = allDistricts.filter(district =>
-        district.toLowerCase().includes(searchQuery.toLowerCase())
-      );
+      const searchResults = searchSchoolsByName(searchQuery, selectedYear);
 
-      if (filteredDistricts.length === 0) {
+      if (searchResults.length === 0) {
         alert('검색 결과가 없습니다.');
-        setSearchResults([]);
+        setSchools([]);
         setShowResults(false);
         return;
       }
 
-      setSearchResults(filteredDistricts);
+      setSchools(searchResults);
       setShowResults(true);
     }
   };
 
+  // 지역구 선택 결과에서 학교 클릭 시 처리
   const handleSelectDistrict = (district) => {
     const schoolList = getSchoolsByRegion(district, selectedYear);
     setSchools(schoolList);
-    setSearchResults([]);
+    setSearchMode('step');
   };
 
   const handleReset = () => {
     setSelectedProvince('');
     setSelectedDistrict('');
     setSearchQuery('');
-    setSearchResults([]);
     setSchools([]);
     setShowResults(false);
   };
@@ -172,14 +169,19 @@ const Main = () => {
           ) : (
             <div className="direct-search">
               <div className="form-group">
-                <label htmlFor="search">지역구 검색</label>
+                <label htmlFor="search">학교 이름 검색</label>
                 <input
                   type="text"
                   id="search"
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
-                  placeholder="예: 강남구, 서초구, 성남시..."
+                  placeholder="예: 청담중학교, 압구정중학교, 대청중학교..."
                   className="search-input"
+                  onKeyPress={(e) => {
+                    if (e.key === 'Enter') {
+                      handleSearch();
+                    }
+                  }}
                 />
               </div>
 
@@ -194,19 +196,6 @@ const Main = () => {
           )}
         </div>
 
-        {showResults && searchResults.length > 0 && (
-          <div className="search-results">
-            <h3>검색 결과</h3>
-            <ul>
-              {searchResults.map((result, index) => (
-                <li key={index} onClick={() => handleSelectDistrict(result)}>
-                  {result}
-                </li>
-              ))}
-            </ul>
-          </div>
-        )}
-
         {showResults && schools.length > 0 && (
           <div className="results-section">
             <div className="results-header">
@@ -219,6 +208,7 @@ const Main = () => {
                 <thead>
                   <tr>
                     <th>순위</th>
+                    {searchMode === 'search' && <th>지역</th>}
                     <th>학교 이름</th>
                     <th>설립 구분</th>
                     <th>남녀 공학</th>
@@ -227,21 +217,35 @@ const Main = () => {
                   </tr>
                 </thead>
                 <tbody>
-                  {schools.map((school, index) => (
-                    <tr key={index} className={index < 3 ? `rank-${index + 1}` : ''}>
-                      <td className="rank-cell">
-                        {index === 0 && <span className="rank-badge gold">1</span>}
-                        {index === 1 && <span className="rank-badge silver">2</span>}
-                        {index === 2 && <span className="rank-badge bronze">3</span>}
-                        {index > 2 && <span className="rank-number">{school.rank}</span>}
-                      </td>
-                      <td className="school-name">{school.name}</td>
-                      <td>{school.type}</td>
-                      <td>{school.gender}</td>
-                      <td className="achievement-cell">{school.achievement}%</td>
-                      <td className="admission-cell">{school.admission}%</td>
-                    </tr>
-                  ))}
+                  {schools.map((school, index) => {
+                    const hasRanking = school.hasRanking !== false;
+                    return (
+                      <tr key={index} className={hasRanking && index < 3 ? `rank-${index + 1}` : ''}>
+                        <td className="rank-cell">
+                          {hasRanking ? (
+                            <>
+                              {index === 0 && <span className="rank-badge gold">1</span>}
+                              {index === 1 && <span className="rank-badge silver">2</span>}
+                              {index === 2 && <span className="rank-badge bronze">3</span>}
+                              {index > 2 && <span className="rank-number">{school.rank}</span>}
+                            </>
+                          ) : (
+                            <span className="no-rank">-</span>
+                          )}
+                        </td>
+                        {searchMode === 'search' && <td className="region-cell">{school.region || ''}</td>}
+                        <td className="school-name">{school.name}</td>
+                        <td>{school.type}</td>
+                        <td>{school.gender}</td>
+                        <td className="achievement-cell">
+                          {hasRanking ? `${school.achievement}%` : '-'}
+                        </td>
+                        <td className="admission-cell">
+                          {hasRanking ? `${school.admission}%` : '-'}
+                        </td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
             </div>
